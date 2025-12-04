@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Trophy, Star, Plus, Users, Download } from 'lucide-react';
 
 const ChampionshipTracker = () => {
+  const STAR_BANK_ID = 'B000';
+
   const initialParticipants = [
+    { id: STAR_BANK_ID, name: 'Banco', stars: 999 },
     { id: 'P001', name: 'Ezequiel', stars: 4 },
     { id: 'P002', name: 'Paulo', stars: 4 },
-    { id: 'P003', name: 'Marina', stars: 4 },
+    { id: 'P003', name: 'Marina', stars: 4 }, 
     { id: 'P004', name: 'Carlos', stars: 4 },
     { id: 'P005', name: 'Ana', stars: 4 },
     { id: 'P006', name: 'Roberto', stars: 4 },
@@ -13,7 +16,9 @@ const ChampionshipTracker = () => {
     { id: 'P008', name: 'Fernando', stars: 4 },
     { id: 'P009', name: 'Beatriz', stars: 4 },
     { id: 'P010', name: 'Diego', stars: 4 },
-    { id: 'P011', name: 'Lucas', stars: 4 }
+    { id: 'P011', name: 'Lucas', stars: 4 },
+    { id: 'P012', name: 'Sofia', stars: 4 },
+    { id: 'P013', name: 'Fred', stars: 4 }
   ];
 
   const gameTypes = [
@@ -27,13 +32,43 @@ const ChampionshipTracker = () => {
     { id: 'M008', name: 'Pebolim', category: 'Mesa' },
     { id: 'M009', name: 'Damas', category: 'Tabuleiro' },
     { id: 'M010', name: 'Street Fighter', category: 'Luta' }
+    
   ];
 
   // Carregar dados salvos ou usar dados iniciais
   const [participants, setParticipants] = useState(() => {
     const saved = localStorage.getItem('championship_participants');
-    return saved ? JSON.parse(saved) : initialParticipants;
+    if (!saved) {
+      return initialParticipants;
+    }
+
+    const savedList = JSON.parse(saved);
+    const participantsById = new Map(savedList.map((p) => [p.id, p]));
+
+    initialParticipants.forEach((participant) => {
+      if (!participantsById.has(participant.id)) {
+        participantsById.set(participant.id, participant);
+      }
+    });
+
+    return Array.from(participantsById.values());
   });
+
+  useEffect(() => {
+    setParticipants((currentParticipants) => {
+      const participantsById = new Map(currentParticipants.map((participant) => [participant.id, participant]));
+      let changed = false;
+
+      initialParticipants.forEach((participant) => {
+        if (!participantsById.has(participant.id)) {
+          participantsById.set(participant.id, participant);
+          changed = true;
+        }
+      });
+
+      return changed ? Array.from(participantsById.values()) : currentParticipants;
+    });
+  }, [initialParticipants]);
 
   const [games, setGames] = useState(() => {
     const saved = localStorage.getItem('championship_games');
@@ -61,15 +96,20 @@ const ChampionshipTracker = () => {
       return;
     }
 
-    const match = inputText.trim().match(/^(\w+)\s*>\s*(\w+)$/i);
-    
-    if (!match) {
-      alert('Formato inválido! Use: NomeVencedor > NomePerdedor');
+    const [rawWinner, rawLoser] = inputText.split('>');
+
+    if (!rawWinner || !rawLoser) {
+      alert('Formato inválido! Use: Nome Vencedor > Nome Perdedor');
       return;
     }
 
-    const winnerName = match[1].trim();
-    const loserName = match[2].trim();
+    const winnerName = rawWinner.trim();
+    const loserName = rawLoser.trim();
+
+    if (!winnerName || !loserName) {
+      alert('Informe os dois nomes para registrar a partida.');
+      return;
+    }
 
     const winnerParticipant = participants.find(p => 
       p.name.toLowerCase() === winnerName.toLowerCase()
@@ -155,6 +195,7 @@ const ChampionshipTracker = () => {
   };
 
   const sortedParticipants = [...participants].sort((a, b) => b.stars - a.stars);
+  const podiumParticipants = sortedParticipants.filter((participant) => participant.id !== STAR_BANK_ID);
 
   if (view === 'display') {
     return (
@@ -185,7 +226,7 @@ const ChampionshipTracker = () => {
         </div>
 
         <div className="max-w-4xl mx-auto space-y-6">
-          {sortedParticipants.slice(0, 3).map((p, index) => (
+          {podiumParticipants.slice(0, 3).map((p, index) => (
             <div
               key={p.id}
               className={`transform transition-all duration-500 ${
