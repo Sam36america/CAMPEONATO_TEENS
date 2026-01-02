@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Star, Plus, Users, Download } from 'lucide-react';
+import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle } from 'lucide-react';
 
 const ChampionshipTracker = () => {
   const STAR_BANK_ID = 'B000';
@@ -21,18 +21,23 @@ const ChampionshipTracker = () => {
     { id: 'P013', name: 'Fred', stars: 4 }
   ];
 
+  // Modalidades organizadas por categoria e ordem alfabética
   const gameTypes = [
-    { id: 'M001', name: 'FIFA 24', category: 'Esporte' },
-    { id: 'M002', name: 'Truco', category: 'Cartas' },
-    { id: 'M003', name: 'Just Dance', category: 'Dança' },
-    { id: 'M004', name: 'Sinuca', category: 'Mesa' },
-    { id: 'M005', name: 'Tênis de Mesa', category: 'Esporte' },
-    { id: 'M006', name: 'Mario Kart', category: 'Corrida' },
-    { id: 'M007', name: 'Uno', category: 'Cartas' },
-    { id: 'M008', name: 'Pebolim', category: 'Mesa' },
-    { id: 'M009', name: 'Damas', category: 'Tabuleiro' },
-    { id: 'M010', name: 'Street Fighter', category: 'Luta' }
-    
+    // Eletrônico (alfabética)
+    { id: 'M001', name: 'FIFA', category: 'Eletrônico' },
+    { id: 'M002', name: 'Tetris', category: 'Eletrônico' },
+    // Esporte (alfabética)
+    { id: 'M007', name: 'Finalização', category: 'Esporte' },
+    { id: 'M006', name: 'Rouba Bandeira', category: 'Esporte' },
+    // Mesa (alfabética)
+    { id: 'M004', name: 'Pebolim', category: 'Mesa' },
+    { id: 'M003', name: 'Sinuca', category: 'Mesa' },
+    { id: 'M005', name: 'Tênis de Mesa', category: 'Mesa' },
+    // Tabuleiro (alfabética)
+    { id: 'M010', name: 'Dama', category: 'Tabuleiro' },
+    { id: 'M011', name: 'Dominó', category: 'Tabuleiro' },
+    { id: 'M009', name: 'Ludo', category: 'Tabuleiro' },
+    { id: 'M008', name: 'Xadrez', category: 'Tabuleiro' }
   ];
 
   // Carregar dados salvos ou usar dados iniciais
@@ -79,7 +84,11 @@ const ChampionshipTracker = () => {
   const [winner, setWinner] = useState('');
   const [loser, setLoser] = useState('');
   const [inputText, setInputText] = useState('');
-  const [view, setView] = useState('control');
+
+  // Detectar se está sendo aberto como telão (via URL parameter)
+  const urlParams = new URLSearchParams(window.location.search);
+  const isDisplayMode = urlParams.get('display') === 'true';
+  const [view, setView] = useState(isDisplayMode ? 'display' : 'control');
 
   // Salvar dados sempre que mudarem
   useEffect(() => {
@@ -89,6 +98,20 @@ const ChampionshipTracker = () => {
   useEffect(() => {
     localStorage.setItem('championship_games', JSON.stringify(games));
   }, [games]);
+
+  // Atualização automática quando localStorage muda (para telão em outra aba)
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'championship_participants') {
+        setParticipants(JSON.parse(e.newValue || '[]'));
+      } else if (e.key === 'championship_games') {
+        setGames(JSON.parse(e.newValue || '[]'));
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const processMatch = () => {
     if (!selectedGame) {
@@ -197,25 +220,271 @@ const ChampionshipTracker = () => {
   const sortedParticipants = [...participants].sort((a, b) => b.stars - a.stars);
   const podiumParticipants = sortedParticipants.filter((participant) => participant.id !== STAR_BANK_ID);
 
+  // Calcular estatísticas dos jogos
+  const getGameStats = () => {
+    const totalGames = games.length;
+    const gamesByModality = {};
+
+    games.forEach(game => {
+      if (!gamesByModality[game.gameType]) {
+        gamesByModality[game.gameType] = {
+          count: 0,
+          category: game.gameCategory
+        };
+      }
+      gamesByModality[game.gameType].count++;
+    });
+
+    return { totalGames, gamesByModality };
+  };
+
+  // Calcular estatísticas dos jogadores
+  const getPlayerStats = () => {
+    const playerStats = {};
+
+    // Inicializar todos os jogadores (exceto o banco)
+    participants.forEach(p => {
+      if (p.id !== STAR_BANK_ID) {
+        playerStats[p.name] = {
+          totalWins: 0,
+          winsByModality: {},
+          totalLosses: 0
+        };
+      }
+    });
+
+    // Contar vitórias e derrotas
+    games.forEach(game => {
+      if (playerStats[game.winner]) {
+        playerStats[game.winner].totalWins++;
+        if (!playerStats[game.winner].winsByModality[game.gameType]) {
+          playerStats[game.winner].winsByModality[game.gameType] = 0;
+        }
+        playerStats[game.winner].winsByModality[game.gameType]++;
+      }
+
+      if (playerStats[game.loser]) {
+        playerStats[game.loser].totalLosses++;
+      }
+    });
+
+    return playerStats;
+  };
+
+  // Renderizar aba Dados Jogos
+  if (view === 'stats-games') {
+    const { totalGames, gamesByModality } = getGameStats();
+    const sortedModalities = Object.entries(gamesByModality).sort((a, b) => b[1].count - a[1].count);
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex gap-4 mb-6">
+            <button
+              onClick={() => setView('control')}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
+            >
+              Voltar ao Controle
+            </button>
+            <button
+              onClick={exportToCSV}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2"
+            >
+              <Download className="w-5 h-5" />
+              Exportar CSV
+            </button>
+          </div>
+
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-slate-800 mb-2 flex items-center justify-center gap-3">
+              <BarChart3 className="w-10 h-10 text-blue-600" />
+              Estatísticas dos Jogos
+            </h1>
+            <p className="text-slate-600">Análise completa das partidas realizadas</p>
+          </div>
+
+          {/* Total de Jogos */}
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg p-8 mb-8 text-center">
+            <h2 className="text-2xl font-bold text-white mb-2">Total de Jogos Realizados</h2>
+            <p className="text-7xl font-black text-white">{totalGames}</p>
+          </div>
+
+          {/* Jogos por Modalidade */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6">Jogos por Modalidade</h2>
+
+            {sortedModalities.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">Nenhum jogo registrado ainda</p>
+            ) : (
+              <div className="space-y-4">
+                {sortedModalities.map(([modality, data], index) => (
+                  <div
+                    key={modality}
+                    className={`flex items-center justify-between p-5 rounded-lg border-2 transition ${
+                      index === 0
+                        ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-400'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`text-2xl font-bold w-12 h-12 flex items-center justify-center rounded-full ${
+                          index === 0
+                            ? 'bg-yellow-400 text-white'
+                            : 'bg-slate-300 text-slate-700'
+                        }`}
+                      >
+                        {index + 1}º
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800 text-xl">{modality}</div>
+                        <div className="text-sm text-slate-500">{data.category}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right mr-2">
+                        <div className="text-3xl font-black text-blue-600">{data.count}</div>
+                        <div className="text-sm text-slate-500">
+                          {((data.count / totalGames) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="w-32 bg-slate-200 rounded-full h-3">
+                        <div
+                          className="bg-blue-600 h-3 rounded-full transition-all"
+                          style={{ width: `${(data.count / totalGames) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Renderizar aba Dados Jogadores
+  if (view === 'stats-players') {
+    const playerStats = getPlayerStats();
+    const sortedPlayers = Object.entries(playerStats).sort((a, b) => b[1].totalWins - a[1].totalWins);
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex gap-4 mb-6">
+            <button
+              onClick={() => setView('control')}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
+            >
+              Voltar ao Controle
+            </button>
+            <button
+              onClick={exportToCSV}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2"
+            >
+              <Download className="w-5 h-5" />
+              Exportar CSV
+            </button>
+          </div>
+
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-slate-800 mb-2 flex items-center justify-center gap-3">
+              <UserCircle className="w-10 h-10 text-green-600" />
+              Estatísticas dos Jogadores
+            </h1>
+            <p className="text-slate-600">Vitórias totais e por modalidade</p>
+          </div>
+
+          {sortedPlayers.length === 0 || games.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+              <p className="text-slate-500 text-xl">Nenhum jogo registrado ainda</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {sortedPlayers.map(([playerName, stats], index) => {
+                const sortedModalityWins = Object.entries(stats.winsByModality).sort((a, b) => b[1] - a[1]);
+                const totalGamesPlayed = stats.totalWins + stats.totalLosses;
+                const winRate = totalGamesPlayed > 0 ? ((stats.totalWins / totalGamesPlayed) * 100).toFixed(1) : 0;
+
+                return (
+                  <div
+                    key={playerName}
+                    className={`bg-white rounded-xl shadow-lg p-6 border-2 transition ${
+                      index === 0
+                        ? 'border-yellow-400 bg-gradient-to-r from-yellow-50/50 to-white'
+                        : index === 1
+                        ? 'border-gray-300'
+                        : index === 2
+                        ? 'border-orange-300'
+                        : 'border-slate-200'
+                    }`}
+                  >
+                    {/* Cabeçalho do Jogador */}
+                    <div className="flex items-center justify-between mb-4 pb-4 border-b-2 border-slate-100">
+                      <div className="flex items-center gap-4">
+                        <div
+                          className={`text-2xl font-bold w-14 h-14 flex items-center justify-center rounded-full ${
+                            index === 0
+                              ? 'bg-yellow-400 text-white'
+                              : index === 1
+                              ? 'bg-gray-300 text-gray-700'
+                              : index === 2
+                              ? 'bg-orange-300 text-orange-900'
+                              : 'bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {index + 1}º
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-bold text-slate-800">{playerName}</h3>
+                          <p className="text-sm text-slate-500">
+                            {totalGamesPlayed} jogos • {winRate}% de vitórias
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-4xl font-black text-green-600">{stats.totalWins}</div>
+                        <div className="text-sm text-slate-500">vitórias</div>
+                        <div className="text-sm text-red-500 mt-1">{stats.totalLosses} derrotas</div>
+                      </div>
+                    </div>
+
+                    {/* Vitórias por Modalidade */}
+                    {sortedModalityWins.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-600 mb-3 uppercase">
+                          Vitórias por Modalidade
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {sortedModalityWins.map(([modality, wins]) => (
+                            <div
+                              key={modality}
+                              className="bg-slate-50 rounded-lg p-3 border border-slate-200"
+                            >
+                              <div className="font-semibold text-slate-700 text-sm mb-1">
+                                {modality}
+                              </div>
+                              <div className="text-2xl font-bold text-green-600">{wins}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (view === 'display') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-8">
-        <div className="flex gap-4 mb-6">
-          <button
-            onClick={() => setView('control')}
-            className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg transition"
-          >
-            Voltar ao Controle
-          </button>
-          <button
-            onClick={exportToCSV}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2"
-          >
-            <Download className="w-5 h-5" />
-            Exportar CSV
-          </button>
-        </div>
-        
         <div className="text-center mb-12">
           <h1 className="text-7xl font-bold text-white mb-4 flex items-center justify-center gap-4">
             <Trophy className="w-20 h-20 text-yellow-400" />
@@ -380,15 +649,31 @@ const ChampionshipTracker = () => {
                 </button>
 
                 <button
-                  onClick={() => setView('display')}
+                  onClick={() => window.open('?display=true', '_blank')}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition"
                 >
-                  Ver Telão
+                  Ver Telão (Nova Aba)
+                </button>
+
+                <button
+                  onClick={() => setView('stats-games')}
+                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <BarChart3 className="w-5 h-5" />
+                  Dados Jogos
+                </button>
+
+                <button
+                  onClick={() => setView('stats-players')}
+                  className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <UserCircle className="w-5 h-5" />
+                  Dados Jogadores
                 </button>
 
                 <button
                   onClick={exportToCSV}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
                 >
                   <Download className="w-5 h-5" />
                   Exportar CSV
