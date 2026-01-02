@@ -134,10 +134,10 @@ const ChampionshipTracker = () => {
       return;
     }
 
-    const winnerParticipant = participants.find(p => 
+    const winnerParticipant = participants.find(p =>
       p.name.toLowerCase() === winnerName.toLowerCase()
     );
-    const loserParticipant = participants.find(p => 
+    const loserParticipant = participants.find(p =>
       p.name.toLowerCase() === loserName.toLowerCase()
     );
 
@@ -146,8 +146,15 @@ const ChampionshipTracker = () => {
       return;
     }
 
+    // Verificar se o vencedor tem estrelas
+    if (winnerParticipant.stars <= 0) {
+      alert(`${winnerParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
+      return;
+    }
+
+    // Verificar se o perdedor tem estrelas
     if (loserParticipant.stars <= 0) {
-      alert(`${loserParticipant.name} não tem estrelas para apostar!`);
+      alert(`${loserParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
       return;
     }
 
