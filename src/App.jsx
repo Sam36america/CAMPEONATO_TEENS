@@ -1,79 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle, UserPlus, ArrowLeft } from 'lucide-react';
 
 const ChampionshipTracker = () => {
   const STAR_BANK_ID = 'B000';
 
   const initialParticipants = [
-    { id: STAR_BANK_ID, name: 'Banco', stars: 999 },
-    { id: 'P001', name: 'Ezequiel', stars: 4 },
-    { id: 'P002', name: 'Paulo', stars: 4 },
-    { id: 'P003', name: 'Marina', stars: 4 }, 
-    { id: 'P004', name: 'Carlos', stars: 4 },
-    { id: 'P005', name: 'Ana', stars: 4 },
-    { id: 'P006', name: 'Roberto', stars: 4 },
-    { id: 'P007', name: 'Julia', stars: 4 },
-    { id: 'P008', name: 'Fernando', stars: 4 },
-    { id: 'P009', name: 'Beatriz', stars: 4 },
-    { id: 'P010', name: 'Diego', stars: 4 },
-    { id: 'P011', name: 'Lucas', stars: 4 },
-    { id: 'P012', name: 'Sofia', stars: 4 },
-    { id: 'P013', name: 'Fred', stars: 4 }
+    { id: STAR_BANK_ID, name: 'Banco', nome: 'Banco', sobrenome: '', dataNascimento: '', stars: 999 }
   ];
 
-  // Modalidades organizadas por categoria e ordem alfabética
   const gameTypes = [
-    // Eletrônico (alfabética)
     { id: 'M001', name: 'FIFA', category: 'Eletrônico' },
     { id: 'M002', name: 'Tetris', category: 'Eletrônico' },
-    // Esporte (alfabética)
     { id: 'M007', name: 'Finalização', category: 'Esporte' },
     { id: 'M006', name: 'Rouba Bandeira', category: 'Esporte' },
-    // Mesa (alfabética)
     { id: 'M004', name: 'Pebolim', category: 'Mesa' },
     { id: 'M003', name: 'Sinuca', category: 'Mesa' },
     { id: 'M005', name: 'Tênis de Mesa', category: 'Mesa' },
-    // Tabuleiro (alfabética)
     { id: 'M010', name: 'Dama', category: 'Tabuleiro' },
     { id: 'M011', name: 'Dominó', category: 'Tabuleiro' },
     { id: 'M009', name: 'Ludo', category: 'Tabuleiro' },
     { id: 'M008', name: 'Xadrez', category: 'Tabuleiro' }
   ];
 
-  // Carregar dados salvos ou usar dados iniciais
   const [participants, setParticipants] = useState(() => {
     const saved = localStorage.getItem('championship_participants');
-    if (!saved) {
-      return initialParticipants;
-    }
+    if (!saved) return initialParticipants;
 
     const savedList = JSON.parse(saved);
-    const participantsById = new Map(savedList.map((p) => [p.id, p]));
+    // Se algum participante (exceto o banco) não tem campo sobrenome, é formato antigo — reinicia
+    const hasOldFormat = savedList.some(p => p.id !== STAR_BANK_ID && p.sobrenome === undefined);
+    if (hasOldFormat) return initialParticipants;
 
-    initialParticipants.forEach((participant) => {
-      if (!participantsById.has(participant.id)) {
-        participantsById.set(participant.id, participant);
-      }
-    });
-
-    return Array.from(participantsById.values());
+    return savedList;
   });
-
-  useEffect(() => {
-    setParticipants((currentParticipants) => {
-      const participantsById = new Map(currentParticipants.map((participant) => [participant.id, participant]));
-      let changed = false;
-
-      initialParticipants.forEach((participant) => {
-        if (!participantsById.has(participant.id)) {
-          participantsById.set(participant.id, participant);
-          changed = true;
-        }
-      });
-
-      return changed ? Array.from(participantsById.values()) : currentParticipants;
-    });
-  }, [initialParticipants]);
 
   const [games, setGames] = useState(() => {
     const saved = localStorage.getItem('championship_games');
@@ -81,16 +40,17 @@ const ChampionshipTracker = () => {
   });
 
   const [selectedGame, setSelectedGame] = useState('');
-  const [winner, setWinner] = useState('');
-  const [loser, setLoser] = useState('');
   const [inputText, setInputText] = useState('');
 
-  // Detectar se está sendo aberto como telão (via URL parameter)
+  // Estados da tela de inscrição
+  const [regNome, setRegNome] = useState('');
+  const [regSobrenome, setRegSobrenome] = useState('');
+  const [regDataNascimento, setRegDataNascimento] = useState('');
+
   const urlParams = new URLSearchParams(window.location.search);
   const isDisplayMode = urlParams.get('display') === 'true';
   const [view, setView] = useState(isDisplayMode ? 'display' : 'control');
 
-  // Salvar dados sempre que mudarem
   useEffect(() => {
     localStorage.setItem('championship_participants', JSON.stringify(participants));
   }, [participants]);
@@ -99,7 +59,6 @@ const ChampionshipTracker = () => {
     localStorage.setItem('championship_games', JSON.stringify(games));
   }, [games]);
 
-  // Atualização automática quando localStorage muda (para telão em outra aba)
   useEffect(() => {
     const handleStorageChange = (e) => {
       if (e.key === 'championship_participants') {
@@ -108,10 +67,50 @@ const ChampionshipTracker = () => {
         setGames(JSON.parse(e.newValue || '[]'));
       }
     };
-
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  const registerParticipant = () => {
+    if (!regNome.trim() || !regSobrenome.trim() || !regDataNascimento) {
+      alert('Preencha todos os campos: Nome, Sobrenome e Data de Nascimento.');
+      return;
+    }
+
+    const nomeFull = `${regNome.trim()} ${regSobrenome.trim()}`;
+
+    // Verificar duplicidade de nome completo
+    const jaExiste = participants.some(
+      p => p.id !== STAR_BANK_ID && p.name.toLowerCase() === nomeFull.toLowerCase()
+    );
+    if (jaExiste) {
+      alert('Já existe um participante com esse nome!');
+      return;
+    }
+
+    const existingPlayers = participants.filter(p => p.id !== STAR_BANK_ID);
+    const nextNum = existingPlayers.length + 1;
+    const id = `P${String(nextNum).padStart(3, '0')}`;
+
+    const newParticipant = {
+      id,
+      nome: regNome.trim(),
+      sobrenome: regSobrenome.trim(),
+      dataNascimento: regDataNascimento,
+      name: nomeFull,
+      stars: 10
+    };
+
+    setParticipants(prev => [...prev, newParticipant]);
+    setRegNome('');
+    setRegSobrenome('');
+    setRegDataNascimento('');
+  };
+
+  const removeParticipant = (id) => {
+    if (!window.confirm('Tem certeza que deseja remover este participante?')) return;
+    setParticipants(prev => prev.filter(p => p.id !== id));
+  };
 
   const processMatch = () => {
     if (!selectedGame) {
@@ -120,7 +119,6 @@ const ChampionshipTracker = () => {
     }
 
     const [rawWinner, rawLoser] = inputText.split('>');
-
     if (!rawWinner || !rawLoser) {
       alert('Formato inválido! Use: Nome Vencedor > Nome Perdedor');
       return;
@@ -146,32 +144,24 @@ const ChampionshipTracker = () => {
       return;
     }
 
-    // Verificar se o vencedor tem estrelas
     if (winnerParticipant.stars <= 0) {
       alert(`${winnerParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
       return;
     }
 
-    // Verificar se o perdedor tem estrelas
     if (loserParticipant.stars <= 0) {
       alert(`${loserParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
       return;
     }
 
-    // Atualizar estrelas
     const updatedParticipants = participants.map(p => {
-      if (p.id === winnerParticipant.id) {
-        return { ...p, stars: p.stars + 1 };
-      }
-      if (p.id === loserParticipant.id) {
-        return { ...p, stars: p.stars - 1 };
-      }
+      if (p.id === winnerParticipant.id) return { ...p, stars: p.stars + 1 };
+      if (p.id === loserParticipant.id) return { ...p, stars: p.stars - 1 };
       return p;
     });
 
     const gameInfo = gameTypes.find(g => g.id === selectedGame);
 
-    // Registrar jogo
     const newGame = {
       id: `G${String(games.length + 1).padStart(3, '0')}`,
       gameType: gameInfo.name,
@@ -185,14 +175,12 @@ const ChampionshipTracker = () => {
     setGames([newGame, ...games]);
     setInputText('');
     setSelectedGame('');
-    setWinner('');
-    setLoser('');
   };
 
   const exportToCSV = () => {
     const participantsCSV = [
-      'ID,Nome,Estrelas',
-      ...participants.map(p => `${p.id},${p.name},${p.stars}`)
+      'ID,Nome,Sobrenome,Data_Nascimento,Estrelas',
+      ...participants.map(p => `${p.id},${p.nome || p.name},${p.sobrenome || ''},${p.dataNascimento || ''},${p.stars}`)
     ].join('\n');
 
     const gamesCSV = [
@@ -206,7 +194,6 @@ const ChampionshipTracker = () => {
     ].join('\n');
 
     const fullCSV = `PARTICIPANTES\n${participantsCSV}\n\nJOGOS\n${gamesCSV}\n\nMODALIDADES\n${modalitiesCSV}`;
-
     const blob = new Blob([fullCSV], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -225,42 +212,27 @@ const ChampionshipTracker = () => {
   };
 
   const sortedParticipants = [...participants].sort((a, b) => b.stars - a.stars);
-  const podiumParticipants = sortedParticipants.filter((participant) => participant.id !== STAR_BANK_ID);
+  const podiumParticipants = sortedParticipants.filter(p => p.id !== STAR_BANK_ID);
 
-  // Calcular estatísticas dos jogos
   const getGameStats = () => {
     const totalGames = games.length;
     const gamesByModality = {};
-
     games.forEach(game => {
       if (!gamesByModality[game.gameType]) {
-        gamesByModality[game.gameType] = {
-          count: 0,
-          category: game.gameCategory
-        };
+        gamesByModality[game.gameType] = { count: 0, category: game.gameCategory };
       }
       gamesByModality[game.gameType].count++;
     });
-
     return { totalGames, gamesByModality };
   };
 
-  // Calcular estatísticas dos jogadores
   const getPlayerStats = () => {
     const playerStats = {};
-
-    // Inicializar todos os jogadores (exceto o banco)
     participants.forEach(p => {
       if (p.id !== STAR_BANK_ID) {
-        playerStats[p.name] = {
-          totalWins: 0,
-          winsByModality: {},
-          totalLosses: 0
-        };
+        playerStats[p.name] = { totalWins: 0, winsByModality: {}, totalLosses: 0 };
       }
     });
-
-    // Contar vitórias e derrotas
     games.forEach(game => {
       if (playerStats[game.winner]) {
         playerStats[game.winner].totalWins++;
@@ -269,16 +241,127 @@ const ChampionshipTracker = () => {
         }
         playerStats[game.winner].winsByModality[game.gameType]++;
       }
-
       if (playerStats[game.loser]) {
         playerStats[game.loser].totalLosses++;
       }
     });
-
     return playerStats;
   };
 
-  // Renderizar aba Dados Jogos
+  // ── TELA DE INSCRIÇÃO ──────────────────────────────────────────────────────
+  if (view === 'register') {
+    const registeredPlayers = participants.filter(p => p.id !== STAR_BANK_ID);
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-4 mb-8">
+            <button
+              onClick={() => setView('control')}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar ao Controle
+            </button>
+            <div>
+              <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                <UserPlus className="w-8 h-8 text-purple-600" />
+                Inscrição de Participantes
+              </h1>
+              <p className="text-slate-500 text-sm mt-1">{registeredPlayers.length} participante(s) inscrito(s)</p>
+            </div>
+          </div>
+
+          {/* Formulário de inscrição */}
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Novo Participante</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nome *</label>
+                <input
+                  type="text"
+                  value={regNome}
+                  onChange={e => setRegNome(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && registerParticipant()}
+                  placeholder="Ex: João"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Sobrenome *</label>
+                <input
+                  type="text"
+                  value={regSobrenome}
+                  onChange={e => setRegSobrenome(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && registerParticipant()}
+                  placeholder="Ex: Silva"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Data de Nascimento *</label>
+              <input
+                type="date"
+                value={regDataNascimento}
+                onChange={e => setRegDataNascimento(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+            <button
+              onClick={registerParticipant}
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+            >
+              <UserPlus className="w-5 h-5" />
+              Inscrever Participante
+            </button>
+          </div>
+
+          {/* Lista de inscritos */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Participantes Inscritos</h2>
+            {registeredPlayers.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">Nenhum participante inscrito ainda.</p>
+            ) : (
+              <div className="space-y-3">
+                {registeredPlayers.map(p => (
+                  <div key={p.id} className="flex items-center justify-between bg-slate-50 rounded-lg p-4 border border-slate-200">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center font-bold text-sm">
+                        {p.id}
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-800">{p.name}</div>
+                        <div className="text-sm text-slate-500">
+                          Nascimento: {p.dataNascimento
+                            ? new Date(p.dataNascimento + 'T00:00:00').toLocaleDateString('pt-BR')
+                            : '—'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 bg-yellow-50 px-3 py-1 rounded-lg border border-yellow-200">
+                        <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                        <span className="font-bold text-slate-800">{p.stars}</span>
+                      </div>
+                      <button
+                        onClick={() => removeParticipant(p.id)}
+                        className="text-red-500 hover:text-red-700 text-sm font-medium transition"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ESTATÍSTICAS DOS JOGOS ─────────────────────────────────────────────────
   if (view === 'stats-games') {
     const { totalGames, gamesByModality } = getGameStats();
     const sortedModalities = Object.entries(gamesByModality).sort((a, b) => b[1].count - a[1].count);
@@ -310,16 +393,13 @@ const ChampionshipTracker = () => {
             <p className="text-slate-600">Análise completa das partidas realizadas</p>
           </div>
 
-          {/* Total de Jogos */}
           <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg p-8 mb-8 text-center">
             <h2 className="text-2xl font-bold text-white mb-2">Total de Jogos Realizados</h2>
             <p className="text-7xl font-black text-white">{totalGames}</p>
           </div>
 
-          {/* Jogos por Modalidade */}
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-2xl font-bold text-slate-800 mb-6">Jogos por Modalidade</h2>
-
             {sortedModalities.length === 0 ? (
               <p className="text-slate-500 text-center py-8">Nenhum jogo registrado ainda</p>
             ) : (
@@ -334,13 +414,9 @@ const ChampionshipTracker = () => {
                     }`}
                   >
                     <div className="flex items-center gap-4">
-                      <div
-                        className={`text-2xl font-bold w-12 h-12 flex items-center justify-center rounded-full ${
-                          index === 0
-                            ? 'bg-yellow-400 text-white'
-                            : 'bg-slate-300 text-slate-700'
-                        }`}
-                      >
+                      <div className={`text-2xl font-bold w-12 h-12 flex items-center justify-center rounded-full ${
+                        index === 0 ? 'bg-yellow-400 text-white' : 'bg-slate-300 text-slate-700'
+                      }`}>
                         {index + 1}º
                       </div>
                       <div>
@@ -359,7 +435,7 @@ const ChampionshipTracker = () => {
                         <div
                           className="bg-blue-600 h-3 rounded-full transition-all"
                           style={{ width: `${(data.count / totalGames) * 100}%` }}
-                        ></div>
+                        />
                       </div>
                     </div>
                   </div>
@@ -372,7 +448,7 @@ const ChampionshipTracker = () => {
     );
   }
 
-  // Renderizar aba Dados Jogadores
+  // ── ESTATÍSTICAS DOS JOGADORES ─────────────────────────────────────────────
   if (view === 'stats-players') {
     const playerStats = getPlayerStats();
     const sortedPlayers = Object.entries(playerStats).sort((a, b) => b[1].totalWins - a[1].totalWins);
@@ -414,34 +490,24 @@ const ChampionshipTracker = () => {
                 const sortedModalityWins = Object.entries(stats.winsByModality).sort((a, b) => b[1] - a[1]);
                 const totalGamesPlayed = stats.totalWins + stats.totalLosses;
                 const winRate = totalGamesPlayed > 0 ? ((stats.totalWins / totalGamesPlayed) * 100).toFixed(1) : 0;
-
                 return (
                   <div
                     key={playerName}
                     className={`bg-white rounded-xl shadow-lg p-6 border-2 transition ${
-                      index === 0
-                        ? 'border-yellow-400 bg-gradient-to-r from-yellow-50/50 to-white'
-                        : index === 1
-                        ? 'border-gray-300'
-                        : index === 2
-                        ? 'border-orange-300'
-                        : 'border-slate-200'
+                      index === 0 ? 'border-yellow-400 bg-gradient-to-r from-yellow-50/50 to-white'
+                      : index === 1 ? 'border-gray-300'
+                      : index === 2 ? 'border-orange-300'
+                      : 'border-slate-200'
                     }`}
                   >
-                    {/* Cabeçalho do Jogador */}
                     <div className="flex items-center justify-between mb-4 pb-4 border-b-2 border-slate-100">
                       <div className="flex items-center gap-4">
-                        <div
-                          className={`text-2xl font-bold w-14 h-14 flex items-center justify-center rounded-full ${
-                            index === 0
-                              ? 'bg-yellow-400 text-white'
-                              : index === 1
-                              ? 'bg-gray-300 text-gray-700'
-                              : index === 2
-                              ? 'bg-orange-300 text-orange-900'
-                              : 'bg-slate-200 text-slate-600'
-                          }`}
-                        >
+                        <div className={`text-2xl font-bold w-14 h-14 flex items-center justify-center rounded-full ${
+                          index === 0 ? 'bg-yellow-400 text-white'
+                          : index === 1 ? 'bg-gray-300 text-gray-700'
+                          : index === 2 ? 'bg-orange-300 text-orange-900'
+                          : 'bg-slate-200 text-slate-600'
+                        }`}>
                           {index + 1}º
                         </div>
                         <div>
@@ -457,22 +523,13 @@ const ChampionshipTracker = () => {
                         <div className="text-sm text-red-500 mt-1">{stats.totalLosses} derrotas</div>
                       </div>
                     </div>
-
-                    {/* Vitórias por Modalidade */}
                     {sortedModalityWins.length > 0 && (
                       <div>
-                        <h4 className="text-sm font-semibold text-slate-600 mb-3 uppercase">
-                          Vitórias por Modalidade
-                        </h4>
+                        <h4 className="text-sm font-semibold text-slate-600 mb-3 uppercase">Vitórias por Modalidade</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {sortedModalityWins.map(([modality, wins]) => (
-                            <div
-                              key={modality}
-                              className="bg-slate-50 rounded-lg p-3 border border-slate-200"
-                            >
-                              <div className="font-semibold text-slate-700 text-sm mb-1">
-                                {modality}
-                              </div>
+                            <div key={modality} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                              <div className="font-semibold text-slate-700 text-sm mb-1">{modality}</div>
                               <div className="text-2xl font-bold text-green-600">{wins}</div>
                             </div>
                           ))}
@@ -489,6 +546,7 @@ const ChampionshipTracker = () => {
     );
   }
 
+  // ── TELÃO ──────────────────────────────────────────────────────────────────
   if (view === 'display') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-8">
@@ -503,32 +561,19 @@ const ChampionshipTracker = () => {
 
         <div className="max-w-4xl mx-auto space-y-6">
           {podiumParticipants.slice(0, 3).map((p, index) => (
-            <div
-              key={p.id}
-              className={`transform transition-all duration-500 ${
-                index === 0 ? 'scale-105' : ''
-              }`}
-            >
-              <div
-                className={`rounded-xl p-6 border-4 shadow-2xl ${
-                  index === 0
-                    ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 border-yellow-300 shadow-yellow-500/50'
-                    : index === 1
-                    ? 'bg-gradient-to-r from-gray-300 to-gray-500 border-gray-200 shadow-gray-500/50'
-                    : 'bg-gradient-to-r from-orange-400 to-orange-600 border-orange-300 shadow-orange-500/50'
-                }`}
-              >
+            <div key={p.id} className={`transform transition-all duration-500 ${index === 0 ? 'scale-105' : ''}`}>
+              <div className={`rounded-xl p-6 border-4 shadow-2xl ${
+                index === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 border-yellow-300 shadow-yellow-500/50'
+                : index === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-500 border-gray-200 shadow-gray-500/50'
+                : 'bg-gradient-to-r from-orange-400 to-orange-600 border-orange-300 shadow-orange-500/50'
+              }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-5">
-                    <div
-                      className={`text-5xl font-black w-20 h-20 flex items-center justify-center rounded-full ${
-                        index === 0
-                          ? 'bg-yellow-600 text-yellow-50'
-                          : index === 1
-                          ? 'bg-gray-600 text-gray-50'
-                          : 'bg-orange-700 text-orange-50'
-                      } shadow-xl`}
-                    >
+                    <div className={`text-5xl font-black w-20 h-20 flex items-center justify-center rounded-full shadow-xl ${
+                      index === 0 ? 'bg-yellow-600 text-yellow-50'
+                      : index === 1 ? 'bg-gray-600 text-gray-50'
+                      : 'bg-orange-700 text-orange-50'
+                    }`}>
                       {index + 1}º
                     </div>
                     <div>
@@ -545,25 +590,15 @@ const ChampionshipTracker = () => {
                     </div>
                   </div>
                   <div className={`flex items-center gap-3 px-6 py-4 rounded-xl shadow-xl ${
-                    index === 0
-                      ? 'bg-yellow-50'
-                      : index === 1
-                      ? 'bg-gray-50'
-                      : 'bg-orange-50'
+                    index === 0 ? 'bg-yellow-50' : index === 1 ? 'bg-gray-50' : 'bg-orange-50'
                   }`}>
                     <Star className={`w-12 h-12 ${
-                      index === 0
-                        ? 'text-yellow-500 fill-yellow-500'
-                        : index === 1
-                        ? 'text-gray-500 fill-gray-500'
-                        : 'text-orange-500 fill-orange-500'
+                      index === 0 ? 'text-yellow-500 fill-yellow-500'
+                      : index === 1 ? 'text-gray-500 fill-gray-500'
+                      : 'text-orange-500 fill-orange-500'
                     }`} />
                     <span className={`text-5xl font-black ${
-                      index === 0
-                        ? 'text-yellow-600'
-                        : index === 1
-                        ? 'text-gray-600'
-                        : 'text-orange-600'
+                      index === 0 ? 'text-yellow-600' : index === 1 ? 'text-gray-600' : 'text-orange-600'
                     }`}>
                       {p.stars}
                     </span>
@@ -576,7 +611,7 @@ const ChampionshipTracker = () => {
 
         {games.length > 0 && (
           <div className="mt-12 max-w-3xl mx-auto bg-white/10 backdrop-blur-sm rounded-xl p-6 border-2 border-white/20">
-            <h2 className="text-2xl font-bold text-white mb-4 text-center">🎮 Última Partida</h2>
+            <h2 className="text-2xl font-bold text-white mb-4 text-center">Última Partida</h2>
             <div className="bg-white/20 rounded-xl p-5 backdrop-blur-sm">
               <div className="text-center mb-3">
                 <span className="text-xl font-bold text-yellow-300">{games[0].gameType}</span>
@@ -595,6 +630,7 @@ const ChampionshipTracker = () => {
     );
   }
 
+  // ── PAINEL DE CONTROLE ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
       <div className="max-w-7xl mx-auto">
@@ -614,7 +650,7 @@ const ChampionshipTracker = () => {
                 <Plus className="w-5 h-5" />
                 Registrar Resultado
               </h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -622,7 +658,7 @@ const ChampionshipTracker = () => {
                   </label>
                   <select
                     value={selectedGame}
-                    onChange={(e) => setSelectedGame(e.target.value)}
+                    onChange={e => setSelectedGame(e.target.value)}
                     className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">Selecione a modalidade...</option>
@@ -641,9 +677,9 @@ const ChampionshipTracker = () => {
                   <input
                     type="text"
                     value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && processMatch()}
-                    placeholder="Ex: Ezequiel > Paulo"
+                    onChange={e => setInputText(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && processMatch()}
+                    placeholder="Ex: João Silva > Maria Lima"
                     className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                 </div>
@@ -653,6 +689,14 @@ const ChampionshipTracker = () => {
                   className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition"
                 >
                   Registrar Partida
+                </button>
+
+                <button
+                  onClick={() => setView('register')}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <UserPlus className="w-5 h-5" />
+                  Inscrições
                 </button>
 
                 <button
@@ -727,7 +771,7 @@ const ChampionshipTracker = () => {
                 <Users className="w-6 h-6" />
                 Ranking Atual
               </h2>
-              
+
               <div className="space-y-3">
                 {sortedParticipants.map((p, index) => (
                   <div
@@ -739,17 +783,12 @@ const ChampionshipTracker = () => {
                     }`}
                   >
                     <div className="flex items-center gap-4">
-                      <div
-                        className={`text-2xl font-bold w-12 h-12 flex items-center justify-center rounded-full ${
-                          index === 0
-                            ? 'bg-yellow-400 text-white'
-                            : index === 1
-                            ? 'bg-slate-300 text-slate-700'
-                            : index === 2
-                            ? 'bg-orange-300 text-orange-900'
-                            : 'bg-slate-200 text-slate-600'
-                        }`}
-                      >
+                      <div className={`text-2xl font-bold w-12 h-12 flex items-center justify-center rounded-full ${
+                        index === 0 ? 'bg-yellow-400 text-white'
+                        : index === 1 ? 'bg-slate-300 text-slate-700'
+                        : index === 2 ? 'bg-orange-300 text-orange-900'
+                        : 'bg-slate-200 text-slate-600'
+                      }`}>
                         {index + 1}
                       </div>
                       <div>
