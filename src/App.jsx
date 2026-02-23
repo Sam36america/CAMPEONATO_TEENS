@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle, UserPlus, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle, UserPlus, ArrowLeft, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const ChampionshipTracker = () => {
   const STAR_BANK_ID = 'B000';
@@ -46,6 +47,8 @@ const ChampionshipTracker = () => {
   const [regNome, setRegNome] = useState('');
   const [regSobrenome, setRegSobrenome] = useState('');
   const [regDataNascimento, setRegDataNascimento] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const fileInputRef = useRef(null);
 
   const urlParams = new URLSearchParams(window.location.search);
   const isDisplayMode = urlParams.get('display') === 'true';
@@ -105,6 +108,102 @@ const ChampionshipTracker = () => {
     setRegNome('');
     setRegSobrenome('');
     setRegDataNascimento('');
+  };
+
+  const normalizeHeader = (str) =>
+    str.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s_\-]/g, '');
+
+  const importFromSpreadsheet = (e) => {
+    const file = e.target.files[0];
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const workbook = XLSX.read(event.target.result, { type: 'array', cellDates: true });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+        if (rows.length === 0) {
+          setImportResult({ sucesso: 0, erros: ['Planilha vazia ou sem dados.'] });
+          return;
+        }
+
+        // Mapear cabeçalhos normalizados para chaves reais
+        const headers = Object.keys(rows[0]);
+        const findHeader = (candidates) =>
+          headers.find(h => candidates.includes(normalizeHeader(h)));
+
+        const nomeKey = findHeader(['nome']);
+        const sobrenomeKey = findHeader(['sobrenome']);
+        const dataNascKey = findHeader(['datanascimento', 'data', 'nascimento', 'dtnascimento', 'datanasc']);
+
+        if (!nomeKey || !sobrenomeKey) {
+          setImportResult({ sucesso: 0, erros: ['Colunas "Nome" e "Sobrenome" não encontradas na planilha.'] });
+          return;
+        }
+
+        let sucesso = 0;
+        const erros = [];
+
+        setParticipants(prev => {
+          let updated = [...prev];
+
+          rows.forEach((row, i) => {
+            const nome = String(row[nomeKey] || '').trim();
+            const sobrenome = String(row[sobrenomeKey] || '').trim();
+            let dataNasc = '';
+
+            if (dataNascKey && row[dataNascKey]) {
+              const raw = row[dataNascKey];
+              if (raw instanceof Date) {
+                dataNasc = raw.toISOString().split('T')[0];
+              } else {
+                // Tentar converter string dd/mm/aaaa para aaaa-mm-dd
+                const parts = String(raw).split('/');
+                if (parts.length === 3) {
+                  dataNasc = `${parts[2].padStart(4,'0')}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+                } else {
+                  dataNasc = String(raw);
+                }
+              }
+            }
+
+            if (!nome || !sobrenome) {
+              erros.push(`Linha ${i + 2}: nome ou sobrenome vazio.`);
+              return;
+            }
+
+            const nomeFull = `${nome} ${sobrenome}`;
+            const jaExiste = updated.some(
+              p => p.id !== STAR_BANK_ID && p.name.toLowerCase() === nomeFull.toLowerCase()
+            );
+            if (jaExiste) {
+              erros.push(`Linha ${i + 2}: "${nomeFull}" já está inscrito.`);
+              return;
+            }
+
+            const existingPlayers = updated.filter(p => p.id !== STAR_BANK_ID);
+            const nextNum = existingPlayers.length + 1;
+            const id = `P${String(nextNum).padStart(3, '0')}`;
+
+            updated.push({ id, nome, sobrenome, dataNascimento: dataNasc, name: nomeFull, stars: 10 });
+            sucesso++;
+          });
+
+          return updated;
+        });
+
+        setImportResult({ sucesso, erros });
+      } catch {
+        setImportResult({ sucesso: 0, erros: ['Erro ao ler o arquivo. Verifique se é .xlsx ou .csv válido.'] });
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const removeParticipant = (id) => {
@@ -308,13 +407,54 @@ const ChampionshipTracker = () => {
                 className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
             </div>
-            <button
-              onClick={registerParticipant}
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              <UserPlus className="w-5 h-5" />
-              Inscrever Participante
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={registerParticipant}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <UserPlus className="w-5 h-5" />
+                Inscrever Participante
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <FileSpreadsheet className="w-5 h-5" />
+                Importar Planilha
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={importFromSpreadsheet}
+                className="hidden"
+              />
+            </div>
+
+            {/* Resultado da importação */}
+            {importResult && (
+              <div className={`mt-4 p-4 rounded-lg border ${importResult.sucesso > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="font-semibold text-slate-800 mb-1">
+                  {importResult.sucesso > 0 && (
+                    <span className="text-green-700">{importResult.sucesso} participante(s) importado(s) com sucesso. </span>
+                  )}
+                  {importResult.erros.length > 0 && (
+                    <span className="text-red-700">{importResult.erros.length} erro(s).</span>
+                  )}
+                </div>
+                {importResult.erros.length > 0 && (
+                  <ul className="text-sm text-red-600 list-disc list-inside space-y-1">
+                    {importResult.erros.map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                )}
+                <button
+                  onClick={() => setImportResult(null)}
+                  className="mt-2 text-xs text-slate-500 hover:text-slate-700 underline"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Lista de inscritos */}
