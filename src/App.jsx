@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Trophy, Star, Plus, Users, Download, BarChart3, UserCircle, UserPlus, ArrowLeft, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { supabase } from './supabaseClient';
 
 const ChampionshipTracker = () => {
   const STAR_BANK_ID = 'B000';
-
-  const initialParticipants = [
-    { id: STAR_BANK_ID, name: 'Banco', nome: 'Banco', sobrenome: '', dataNascimento: '', stars: 999 }
-  ];
+  const BANCO_PARTICIPANT = { id: STAR_BANK_ID, name: 'Banco', nome: 'Banco', sobrenome: '', dataNascimento: '', stars: 999 };
 
   const gameTypes = [
     { id: 'M001', name: 'FIFA', category: 'Eletrônico' },
@@ -23,23 +21,9 @@ const ChampionshipTracker = () => {
     { id: 'M008', name: 'Xadrez', category: 'Tabuleiro' }
   ];
 
-  const [participants, setParticipants] = useState(() => {
-    const saved = localStorage.getItem('championship_participants');
-    if (!saved) return initialParticipants;
-
-    const savedList = JSON.parse(saved);
-    // Se algum participante (exceto o banco) não tem campo sobrenome, é formato antigo — reinicia
-    const hasOldFormat = savedList.some(p => p.id !== STAR_BANK_ID && p.sobrenome === undefined);
-    if (hasOldFormat) return initialParticipants;
-
-    return savedList;
-  });
-
-  const [games, setGames] = useState(() => {
-    const saved = localStorage.getItem('championship_games');
-    return saved ? JSON.parse(saved) : [];
-  });
-
+  const [participants, setParticipants] = useState([]);
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedGame, setSelectedGame] = useState('');
   const [inputText, setInputText] = useState('');
 
@@ -54,35 +38,57 @@ const ChampionshipTracker = () => {
   const isDisplayMode = urlParams.get('display') === 'true';
   const [view, setView] = useState(isDisplayMode ? 'display' : 'control');
 
-  useEffect(() => {
-    localStorage.setItem('championship_participants', JSON.stringify(participants));
-  }, [participants]);
+  // ── SUPABASE: carregar todos os dados ───────────────────────────────────────
+  const loadAllData = async () => {
+    const [{ data: parts }, { data: gms }] = await Promise.all([
+      supabase.from('participants').select('*').order('id'),
+      supabase.from('games').select('*').order('id', { ascending: false })
+    ]);
+
+    let list = parts || [];
+    if (!list.find(p => p.id === STAR_BANK_ID)) {
+      await supabase.from('participants').upsert(BANCO_PARTICIPANT);
+      list = [BANCO_PARTICIPANT, ...list];
+    }
+
+    setParticipants(list);
+    setGames(gms || []);
+  };
 
   useEffect(() => {
-    localStorage.setItem('championship_games', JSON.stringify(games));
-  }, [games]);
+    let mounted = true;
+    setLoading(true);
+    loadAllData().finally(() => { if (mounted) setLoading(false); });
 
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === 'championship_participants') {
-        setParticipants(JSON.parse(e.newValue || '[]'));
-      } else if (e.key === 'championship_games') {
-        setGames(JSON.parse(e.newValue || '[]'));
-      }
+    // Realtime: sincroniza entre dispositivos / abas
+    const channel = supabase
+      .channel('championship-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => {
+        if (mounted) loadAllData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => {
+        if (mounted) {
+          supabase.from('games').select('*').order('id', { ascending: false }).then(({ data }) => {
+            if (data && mounted) setGames(data);
+          });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  const registerParticipant = () => {
+  // ── INSCRIÇÃO ───────────────────────────────────────────────────────────────
+  const registerParticipant = async () => {
     if (!regNome.trim() || !regSobrenome.trim() || !regDataNascimento) {
       alert('Preencha todos os campos: Nome, Sobrenome e Data de Nascimento.');
       return;
     }
 
     const nomeFull = `${regNome.trim()} ${regSobrenome.trim()}`;
-
-    // Verificar duplicidade de nome completo
     const jaExiste = participants.some(
       p => p.id !== STAR_BANK_ID && p.name.toLowerCase() === nomeFull.toLowerCase()
     );
@@ -104,12 +110,20 @@ const ChampionshipTracker = () => {
       stars: 10
     };
 
-    setParticipants(prev => [...prev, newParticipant]);
+    setParticipants(prev => [...prev, newParticipant]); // otimista
+    const { error } = await supabase.from('participants').insert(newParticipant);
+    if (error) {
+      alert('Erro ao salvar: ' + error.message);
+      setParticipants(prev => prev.filter(p => p.id !== id));
+      return;
+    }
+
     setRegNome('');
     setRegSobrenome('');
     setRegDataNascimento('');
   };
 
+  // ── IMPORTAR PLANILHA ───────────────────────────────────────────────────────
   const normalizeHeader = (str) =>
     str.toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -122,7 +136,7 @@ const ChampionshipTracker = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const workbook = XLSX.read(event.target.result, { type: 'array', cellDates: true });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -133,7 +147,6 @@ const ChampionshipTracker = () => {
           return;
         }
 
-        // Mapear cabeçalhos normalizados para chaves reais
         const headers = Object.keys(rows[0]);
         const findHeader = (candidates) =>
           headers.find(h => candidates.includes(normalizeHeader(h)));
@@ -147,58 +160,61 @@ const ChampionshipTracker = () => {
           return;
         }
 
-        let sucesso = 0;
         const erros = [];
+        const toInsert = [];
+        const currentList = [...participants];
 
-        setParticipants(prev => {
-          let updated = [...prev];
+        rows.forEach((row, i) => {
+          const nome = String(row[nomeKey] || '').trim();
+          const sobrenome = String(row[sobrenomeKey] || '').trim();
+          let dataNasc = '';
 
-          rows.forEach((row, i) => {
-            const nome = String(row[nomeKey] || '').trim();
-            const sobrenome = String(row[sobrenomeKey] || '').trim();
-            let dataNasc = '';
-
-            if (dataNascKey && row[dataNascKey]) {
-              const raw = row[dataNascKey];
-              if (raw instanceof Date) {
-                dataNasc = raw.toISOString().split('T')[0];
+          if (dataNascKey && row[dataNascKey]) {
+            const raw = row[dataNascKey];
+            if (raw instanceof Date) {
+              dataNasc = raw.toISOString().split('T')[0];
+            } else {
+              const parts = String(raw).split('/');
+              if (parts.length === 3) {
+                dataNasc = `${parts[2].padStart(4, '0')}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
               } else {
-                // Tentar converter string dd/mm/aaaa para aaaa-mm-dd
-                const parts = String(raw).split('/');
-                if (parts.length === 3) {
-                  dataNasc = `${parts[2].padStart(4,'0')}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-                } else {
-                  dataNasc = String(raw);
-                }
+                dataNasc = String(raw);
               }
             }
+          }
 
-            if (!nome || !sobrenome) {
-              erros.push(`Linha ${i + 2}: nome ou sobrenome vazio.`);
-              return;
-            }
+          if (!nome || !sobrenome) {
+            erros.push(`Linha ${i + 2}: nome ou sobrenome vazio.`);
+            return;
+          }
 
-            const nomeFull = `${nome} ${sobrenome}`;
-            const jaExiste = updated.some(
-              p => p.id !== STAR_BANK_ID && p.name.toLowerCase() === nomeFull.toLowerCase()
-            );
-            if (jaExiste) {
-              erros.push(`Linha ${i + 2}: "${nomeFull}" já está inscrito.`);
-              return;
-            }
+          const nomeFull = `${nome} ${sobrenome}`;
+          const jaExiste = currentList.some(
+            p => p.id !== STAR_BANK_ID && p.name.toLowerCase() === nomeFull.toLowerCase()
+          ) || toInsert.some(p => p.name.toLowerCase() === nomeFull.toLowerCase());
 
-            const existingPlayers = updated.filter(p => p.id !== STAR_BANK_ID);
-            const nextNum = existingPlayers.length + 1;
-            const id = `P${String(nextNum).padStart(3, '0')}`;
+          if (jaExiste) {
+            erros.push(`Linha ${i + 2}: "${nomeFull}" já está inscrito.`);
+            return;
+          }
 
-            updated.push({ id, nome, sobrenome, dataNascimento: dataNasc, name: nomeFull, stars: 10 });
-            sucesso++;
-          });
+          const existingCount = currentList.filter(p => p.id !== STAR_BANK_ID).length;
+          const nextNum = existingCount + toInsert.length + 1;
+          const id = `P${String(nextNum).padStart(3, '0')}`;
 
-          return updated;
+          toInsert.push({ id, nome, sobrenome, dataNascimento: dataNasc, name: nomeFull, stars: 10 });
         });
 
-        setImportResult({ sucesso, erros });
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from('participants').insert(toInsert);
+          if (error) {
+            setImportResult({ sucesso: 0, erros: ['Erro ao salvar no banco: ' + error.message] });
+            return;
+          }
+          setParticipants(prev => [...prev, ...toInsert]);
+        }
+
+        setImportResult({ sucesso: toInsert.length, erros });
       } catch {
         setImportResult({ sucesso: 0, erros: ['Erro ao ler o arquivo. Verifique se é .xlsx ou .csv válido.'] });
       }
@@ -206,12 +222,19 @@ const ChampionshipTracker = () => {
     reader.readAsArrayBuffer(file);
   };
 
-  const removeParticipant = (id) => {
+  // ── REMOVER PARTICIPANTE ────────────────────────────────────────────────────
+  const removeParticipant = async (id) => {
     if (!window.confirm('Tem certeza que deseja remover este participante?')) return;
-    setParticipants(prev => prev.filter(p => p.id !== id));
+    setParticipants(prev => prev.filter(p => p.id !== id)); // otimista
+    const { error } = await supabase.from('participants').delete().eq('id', id);
+    if (error) {
+      alert('Erro ao remover: ' + error.message);
+      loadAllData(); // rollback
+    }
   };
 
-  const processMatch = () => {
+  // ── REGISTRAR PARTIDA ───────────────────────────────────────────────────────
+  const processMatch = async () => {
     if (!selectedGame) {
       alert('Selecione a modalidade do jogo!');
       return;
@@ -231,12 +254,8 @@ const ChampionshipTracker = () => {
       return;
     }
 
-    const winnerParticipant = participants.find(p =>
-      p.name.toLowerCase() === winnerName.toLowerCase()
-    );
-    const loserParticipant = participants.find(p =>
-      p.name.toLowerCase() === loserName.toLowerCase()
-    );
+    const winnerParticipant = participants.find(p => p.name.toLowerCase() === winnerName.toLowerCase());
+    const loserParticipant = participants.find(p => p.name.toLowerCase() === loserName.toLowerCase());
 
     if (!winnerParticipant || !loserParticipant) {
       alert('Participante não encontrado!');
@@ -247,7 +266,6 @@ const ChampionshipTracker = () => {
       alert(`${winnerParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
       return;
     }
-
     if (loserParticipant.stars <= 0) {
       alert(`${loserParticipant.name.toUpperCase()} ESTÁ SEM ESTRELAS!`);
       return;
@@ -260,7 +278,6 @@ const ChampionshipTracker = () => {
     });
 
     const gameInfo = gameTypes.find(g => g.id === selectedGame);
-
     const newGame = {
       id: `G${String(games.length + 1).padStart(3, '0')}`,
       gameType: gameInfo.name,
@@ -270,12 +287,24 @@ const ChampionshipTracker = () => {
       timestamp: new Date().toLocaleString('pt-BR')
     };
 
-    setParticipants(updatedParticipants);
-    setGames([newGame, ...games]);
+    setParticipants(updatedParticipants); // otimista
+    setGames(prev => [newGame, ...prev]); // otimista
     setInputText('');
     setSelectedGame('');
+
+    const [{ error: e1 }, { error: e2 }, { error: e3 }] = await Promise.all([
+      supabase.from('participants').update({ stars: winnerParticipant.stars + 1 }).eq('id', winnerParticipant.id),
+      supabase.from('participants').update({ stars: loserParticipant.stars - 1 }).eq('id', loserParticipant.id),
+      supabase.from('games').insert(newGame)
+    ]);
+
+    if (e1 || e2 || e3) {
+      alert('Erro ao salvar partida. Recarregando...');
+      loadAllData();
+    }
   };
 
+  // ── EXPORTAR CSV ────────────────────────────────────────────────────────────
   const exportToCSV = () => {
     const participantsCSV = [
       'ID,Nome,Sobrenome,Data_Nascimento,Estrelas',
@@ -300,16 +329,21 @@ const ChampionshipTracker = () => {
     link.click();
   };
 
-  const resetChampionship = () => {
-    if (window.confirm('Tem certeza que deseja resetar o campeonato? Todos os dados serão perdidos!')) {
-      localStorage.removeItem('championship_participants');
-      localStorage.removeItem('championship_games');
-      setParticipants(initialParticipants);
-      setGames([]);
-      alert('Campeonato resetado!');
-    }
+  // ── RESETAR CAMPEONATO ──────────────────────────────────────────────────────
+  const resetChampionship = async () => {
+    if (!window.confirm('Tem certeza que deseja resetar o campeonato? Todos os dados serão perdidos!')) return;
+
+    await Promise.all([
+      supabase.from('participants').delete().neq('id', STAR_BANK_ID),
+      supabase.from('games').delete().not('id', 'is', null)
+    ]);
+
+    setParticipants([BANCO_PARTICIPANT]);
+    setGames([]);
+    alert('Campeonato resetado!');
   };
 
+  // ── UTILS ───────────────────────────────────────────────────────────────────
   const sortedParticipants = [...participants].sort((a, b) => b.stars - a.stars);
   const podiumParticipants = sortedParticipants.filter(p => p.id !== STAR_BANK_ID);
 
@@ -346,6 +380,18 @@ const ChampionshipTracker = () => {
     });
     return playerStats;
   };
+
+  // ── LOADING ─────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <Trophy className="w-16 h-16 text-purple-600 mx-auto mb-4 animate-pulse" />
+          <p className="text-xl font-bold text-slate-700">Carregando campeonato...</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── TELA DE INSCRIÇÃO ──────────────────────────────────────────────────────
   if (view === 'register') {
